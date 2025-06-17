@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>CableCalc</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>AmpLogic</h1>
+
+    <div id="deviceForm">
+      <label>Device Name:</label>
+      <input type="text" id="deviceName" placeholder="e.g., LED Mover" />
+      <label>Power per Device (W):</label>
+      <input type="number" id="deviceWattage" />
+      <label>Quantity:</label>
+      <input type="number" id="quantity" />
+      <button type="button" id="addDeviceBtn">Add Device</button>
+    </div>
+
+    <h3>Device List:</h3>
+    <table id="deviceList" border="1" style="margin-top: 10px; border-collapse: collapse; width: 100%;">
+      <thead>
+        <tr>
+          <th>Device Name</th>
+          <th>Power per Device (W)</th>
+          <th>Quantity</th>
+          <th>Total Power (W)</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <label>Cable Size (mm²):</label>
+    <select id="cableSize">
+      <option value="1.5">1.5 mm²</option>
+      <option value="2.5" selected>2.5 mm²</option>
+      <option value="4">4 mm²</option>
+    </select>
+
+    <label>Cable Length (m):</label>
+    <input type="number" id="cableLength" value="10" />
+
+    <label>Plug Type:</label>
+    <select id="plugType">
+      <option value="13">13A</option>
+      <option value="16" selected>16A</option>
+      <option value="32">32A</option>
+    </select>
+
+    <button onclick="calculateLoad()">Calculate</button>
+    <button onclick="resetForm()">Reset</button>
+    <button onclick="exportToCSV()">Export CSV</button>
+
+    <div id="result"></div>
+  </div>
+
+  <script>
+    window.onload = function () {
+      const devices = [];
+
+      document.getElementById("addDeviceBtn").addEventListener("click", function () {
+        const name = document.getElementById("deviceName").value.trim();
+        const wattage = parseFloat(document.getElementById("deviceWattage").value);
+        const quantity = parseInt(document.getElementById("quantity").value);
+
+        if (!name || isNaN(wattage) || isNaN(quantity)) {
+          alert("Please fill in all fields with valid values.");
+          return;
+        }
+
+        const totalPower = wattage * quantity;
+        devices.push({ name, wattage, quantity, totalPower });
+
+        const tableBody = document.querySelector("#deviceList tbody");
+        const row = document.createElement("tr");
+
+        row.innerHTML = `
+          <td>${name}</td>
+          <td>${wattage}</td>
+          <td>${quantity}</td>
+          <td>${totalPower}</td>
+        `;
+
+        tableBody.appendChild(row);
+
+        document.getElementById("deviceName").value = "";
+        document.getElementById("deviceWattage").value = "";
+        document.getElementById("quantity").value = "";
+      });
+
+      window.calculateLoad = function () {
+        const voltage = 230;
+        const cableSize = parseFloat(document.getElementById("cableSize").value);
+        const cableLength = parseFloat(document.getElementById("cableLength").value);
+        const plugType = parseInt(document.getElementById("plugType").value);
+
+        const tableRows = document.querySelectorAll("#deviceList tbody tr");
+        let totalPower = 0;
+        let summary = "";
+
+        tableRows.forEach(row => {
+          const name = row.cells[0].textContent;
+          const watt = parseFloat(row.cells[1].textContent);
+          const qty = parseInt(row.cells[2].textContent);
+          const power = watt * qty;
+          totalPower += power;
+          summary += `${name} × ${qty} = ${power}W<br>`;
+        });
+
+        const currentDraw = totalPower / voltage;
+
+        // Conservative cable amp limits
+        const cableLimit = cableSize === 1.5 ? 15 : cableSize === 2.5 ? 20 : 25;
+        const voltDropPerAmpPerM = cableSize === 1.5 ? 0.03 : cableSize === 2.5 ? 0.018 : 0.011;
+        const voltDrop = currentDraw * cableLength * voltDropPerAmpPerM;
+        const endVoltage = voltage - voltDrop;
+        const voltageDropSafe = voltDrop < 11.5;
+        const isSafe = currentDraw <= cableLimit && currentDraw <= plugType && voltageDropSafe;
+
+        let result = `<strong>Total Load Summary:</strong><br>${summary}`;
+result += `Total Power: <strong>${totalPower.toFixed(0)} W</strong><br>`;
+result += `Estimated Current: ${currentDraw.toFixed(1)} A<br>`;
+result += `Cable Limit: ${cableLimit} A | Plug Limit: ${plugType} A<br>`;
+result += `Voltage Drop: ${voltDrop.toFixed(1)} V → ${endVoltage.toFixed(1)} V<br><br>`;
+result += isSafe
+  ? `<span style="color: limegreen; font-weight: bold;">Safe to run</span>`
+  : `<span style="color: red; font-weight: bold;">Overload or voltage drop risk</span>`;
+  
+        document.getElementById("result").innerHTML = result;
+      };
+
+      window.resetForm = function () {
+        // clear stored devices
+        devices.length = 0;
+
+        // clear table rows
+        document.querySelector("#deviceList tbody").innerHTML = "";
+
+        // clear input fields
+        document.getElementById("deviceName").value = "";
+        document.getElementById("deviceWattage").value = "";
+        document.getElementById("quantity").value = "";
+
+        // reset other controls
+        document.getElementById("cableSize").value = "2.5";
+        document.getElementById("cableLength").value = "10";
+        document.getElementById("plugType").value = "16";
+
+        // clear result area
+        document.getElementById("result").innerHTML = "";
+      };
+
+      window.exportToCSV = function () {
+        const table = document.getElementById("deviceList");
+        const headers = Array.from(table.querySelectorAll("thead th")).map(th => th.textContent.trim());
+        const rows = Array.from(table.querySelectorAll("tbody tr")).map(row => {
+          return Array.from(row.cells).map(cell => cell.textContent.trim()).join(",");
+        });
+
+        const csvRows = [headers.join(",")].concat(rows);
+
+        const resultLines = document.getElementById("result").innerText.split("\n").map(line => `"${line.trim()}"`);
+        csvRows.push("");
+        csvRows.push("Result Summary");
+        csvRows.push(...resultLines);
+
+        const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = "CableCalc_Result.csv";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      };
+    };
+  </script>
+</body>
+</html>
