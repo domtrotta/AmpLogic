@@ -7,7 +7,7 @@ body {
 }
 
 .container {
-  max-width: 500px;
+  max-width: 700px;
   margin: auto;
 }
 
@@ -17,10 +17,15 @@ input, select, button {
   margin: 0.5rem 0 1rem;
   padding: 0.5rem;
   font-size: 1rem;
+  background-color: #2a2a2a;
+  color: #f1f1f1;
+  border: 1px solid #444;
+  border-radius: 4px;
+  box-sizing: border-box;
 }
 
 button {
-  background: #007acc;
+  background: #2d5b80;
   color: white;
   border: none;
   font-weight: bold;
@@ -29,10 +34,68 @@ button {
 }
 
 button:hover {
-  background: #005f9e;
+  background: #616f79;
 }
 
 #result {
   margin-top: 2rem;
-  font-size: 1.1rem;
+  font-size: 1rem;
+  line-height: 1.5;
+  padding: 1rem;
+  background-color: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 6px;
+}
+
+#result ul {
+  list-style-type: disc;
+  margin: 0.5em 0 0 1.2em;
+  padding: 0;
+  color: #f1f1f1;
+}
+
+#result li {
+  margin-bottom: 0.4em;
+  line-height: 1.4;
+}
+
+/* Table styling for inputs */
+.watt, .qty {
+  width: 100%;
+  max-width: 75px;
+  padding: 2px 4px;
+  font-size: 0.9rem;
+  background-color: #2b2b2b;
+  color: #f1f1f1;
+  border: 1px solid #555;
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+
+/* Prevent table cells from expanding or breaking layout */
+#deviceList th,
+#deviceList td {
+  text-align: center;
+  padding: 4px;
+  overflow: hidden;
+  max-width: 100px;
+  white-space: nowrap;
+}
+
+/* Ensure numeric input aligns and fits in its cell */
+#deviceList input[type="number"] {
+  text-align: right;
+  width: 100%;
+  box-sizing: border-box;
+}
+#result {
+  display: block;
+  padding: 1rem;
+  background: #2a2a2a;
+  color: #f1f1f1;
+  font-size: 1rem;
+  border: 1px solid #444;
+  border-radius: 6px;
+  margin-top: 1rem;
+  min-height: 50px;
 }

@@ -12,7 +12,7 @@
 
     <div id="deviceForm">
       <label>Device Name:</label>
-      <input type="text" id="deviceName" placeholder="e.g., LED Mover" />
+      <input type="text" id="deviceName" placeholder="e.g., Item" />
       <label>Power per Device (W):</label>
       <input type="number" id="deviceWattage" />
       <label>Quantity:</label>
@@ -54,7 +54,7 @@
     <button onclick="resetForm()">Reset</button>
     <button onclick="exportToCSV()">Export CSV</button>
 
-    <div id="result"></div>
+   <div id="result"></div>
   </div>
 
   <script>
@@ -79,9 +79,9 @@
 
         row.innerHTML = `
           <td>${name}</td>
-          <td>${wattage}</td>
-          <td>${quantity}</td>
-          <td>${totalPower}</td>
+          <td><input type="number" value="${wattage}" class="watt" onchange="updateAndRecalculate()" /></td>
+          <td><input type="number" value="${quantity}" class="qty" onchange="updateAndRecalculate()" /></td>
+          <td class="total-power">${totalPower}</td>
         `;
 
         tableBody.appendChild(row);
@@ -103,8 +103,8 @@
 
         tableRows.forEach(row => {
           const name = row.cells[0].textContent;
-          const watt = parseFloat(row.cells[1].textContent);
-          const qty = parseInt(row.cells[2].textContent);
+          const watt = parseFloat(row.querySelector(".watt").value);
+          const qty = parseInt(row.querySelector(".qty").value);
           const power = watt * qty;
           totalPower += power;
           summary += `${name} × ${qty} = ${power}W<br>`;
@@ -175,6 +175,21 @@ result += isSafe
         link.click();
         document.body.removeChild(link);
       };
+    };
+
+    window.updateAndRecalculate = function () {
+      const rows = document.querySelectorAll("#deviceList tbody tr");
+      let totalPower = 0;
+
+      rows.forEach(row => {
+        const watt = parseFloat(row.querySelector(".watt").value);
+        const qty = parseInt(row.querySelector(".qty").value);
+        const power = isNaN(watt) || isNaN(qty) ? 0 : watt * qty;
+        row.querySelector(".total-power").textContent = power;
+        totalPower += power;
+      });
+
+      calculateLoad();
     };
   </script>
 </body>
