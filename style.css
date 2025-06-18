@@ -99,3 +99,18 @@ button:hover {
   margin-top: 1rem;
   min-height: 50px;
 }
+
+#deviceList button {
+  background-color: #a33;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.3s ease;
+}
+
+#deviceList button:hover {
+  background-color: #d44;
+}
