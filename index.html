@@ -17,7 +17,20 @@
       <input type="number" id="deviceWattage" />
       <label>Quantity:</label>
       <input type="number" id="quantity" />
+      <label>Department:</label>
+      <select id="deviceDepartment">
+        <option value="Lighting">Lighting</option>
+        <option value="Audio">Audio</option>
+        <option value="Video">Video</option>
+        <option value="Rigging">Rigging</option>
+        <option value="Power">Power</option>
+        <option value="Other">Other</option>
+      </select>
+      <label>Circuit ID:</label>
+      <input type="text" id="deviceCircuit" placeholder="e.g., L1-1" />
       <button type="button" id="addDeviceBtn">Add Device</button>
+      <button type="button" id="importCsvBtn">Import CSV</button>
+      <input type="file" id="csvInput" accept=".csv" style="display: none;" />
     </div>
 
     <h3>Device List:</h3>
@@ -27,7 +40,10 @@
           <th>Device Name</th>
           <th>Power per Device (W)</th>
           <th>Quantity</th>
+          <th>Department</th>
+          <th>Circuit</th>
           <th>Total Power (W)</th>
+          <th>Phase</th>
           <th>Remove</th>
         </tr>
       </thead>
@@ -51,123 +67,470 @@
       <option value="32">32A</option>
     </select>
 
+    <label>Number of Phases:</label>
+    <select id="phaseCount">
+      <option value="1" selected>1 (Single Phase)</option>
+      <option value="3">3 (Three Phase)</option>
+    </select>
+
+    <label>Supply Limit per Phase (A):</label>
+    <input type="number" id="supplyLimit" placeholder="Optional" />
+
+    <label>Generator Capacity (kVA):</label>
+    <input type="number" id="generatorCapacity" placeholder="Optional" />
+
     <button onclick="calculateLoad()">Calculate</button>
     <button onclick="resetForm()">Reset</button>
     <button onclick="exportToCSV()">Export CSV</button>
+    <button type="button" id="autoBalanceBtn">Auto Balance Phases</button>
 
    <div id="result"></div>
+   <div id="breakdown" style="margin-top: 10px;"></div>
+   <div id="generatorAdvice" style="margin-top: 10px;"></div>
   </div>
 
   <script>
     window.onload = function () {
-      const devices = [];
+      const departments = ["Lighting", "Audio", "Video", "Rigging", "Power", "Other"];
+      const phases = ["L1", "L2", "L3"];
+      const voltage = 230;
+
+      const escapeHtml = (value) => {
+        if (value === null || value === undefined) {
+          return "";
+        }
+        return String(value).replace(/[&<>"']/g, (char) => {
+          const map = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+          return map[char] || char;
+        });
+      };
+
+      const createDepartmentOptions = (selected) => {
+        const options = departments.slice();
+        if (selected && !options.includes(selected)) {
+          options.push(selected);
+        }
+        return options
+          .map(
+            (dept) =>
+              `<option value="${escapeHtml(dept)}"${dept === selected ? " selected" : ""}>${escapeHtml(dept)}</option>`
+          )
+          .join("");
+      };
+
+      const normalizeDepartment = (value) => {
+        if (!value) {
+          return "Other";
+        }
+        const match = departments.find((dept) => dept.toLowerCase() === value.toLowerCase());
+        return match || value;
+      };
+
+      const normalizePhase = (value) => {
+        const upper = (value || "").toUpperCase();
+        return phases.includes(upper) ? upper : "L1";
+      };
+
+      const collectRowData = (row) => {
+        const name =
+          row.querySelector(".device-name")?.textContent.trim() ||
+          row.querySelector(".device-name input")?.value.trim() ||
+          "Device";
+        const watt = parseFloat(row.querySelector(".watt")?.value);
+        const qty = parseInt(row.querySelector(".qty")?.value, 10);
+        const department = row.querySelector(".department")?.value || "Other";
+        const circuit = row.querySelector(".circuit")?.value.trim() || "";
+        const phase = normalizePhase(row.querySelector(".phase")?.value || "L1");
+        const power = !isNaN(watt) && !isNaN(qty) ? watt * qty : 0;
+        return { name, watt: isNaN(watt) ? 0 : watt, qty: isNaN(qty) ? 0 : qty, department, circuit, phase, power };
+      };
+
+      const updatePhaseControls = () => {
+        const phaseCount = parseInt(document.getElementById("phaseCount").value, 10) || 1;
+        const isThreePhase = phaseCount === 3;
+        const rows = document.querySelectorAll("#deviceList tbody tr");
+        rows.forEach((row) => {
+          const phaseSelect = row.querySelector(".phase");
+          if (!phaseSelect) {
+            return;
+          }
+          if (isThreePhase) {
+            phaseSelect.disabled = false;
+          } else {
+            phaseSelect.value = "L1";
+            phaseSelect.disabled = true;
+          }
+        });
+      };
+
+      function calculateLoad() {
+        const cableSize = parseFloat(document.getElementById("cableSize").value) || 0;
+        const cableLength = parseFloat(document.getElementById("cableLength").value) || 0;
+        const plugType = parseInt(document.getElementById("plugType").value, 10) || 0;
+        const phaseCount = parseInt(document.getElementById("phaseCount").value, 10) || 1;
+        const supplyLimit = parseFloat(document.getElementById("supplyLimit").value);
+        const generatorCapacity = parseFloat(document.getElementById("generatorCapacity").value);
+        const isThreePhase = phaseCount === 3;
+        const activePhases = isThreePhase ? phases : ["L1"];
+
+        const tableRows = Array.from(document.querySelectorAll("#deviceList tbody tr"));
+        let totalPower = 0;
+        let summary = "";
+        const perDepartment = {};
+        const perCircuit = {};
+        const perPhaseTotals = { L1: 0, L2: 0, L3: 0 };
+
+        tableRows.forEach((row) => {
+          const data = collectRowData(row);
+          row.querySelector(".total-power").textContent = data.power.toFixed(0);
+          summary += `${escapeHtml(data.name)} × ${data.qty} = ${data.power.toFixed(0)}W<br>`;
+          totalPower += data.power;
+
+          const departmentKey = normalizeDepartment(data.department);
+          perDepartment[departmentKey] = (perDepartment[departmentKey] || 0) + data.power;
+
+          const circuitKey = data.circuit || "Unassigned";
+          perCircuit[circuitKey] = (perCircuit[circuitKey] || 0) + data.power;
+
+          const phaseKey = isThreePhase ? data.phase : "L1";
+          perPhaseTotals[phaseKey] = (perPhaseTotals[phaseKey] || 0) + data.power;
+        });
+
+        if (!isThreePhase) {
+          perPhaseTotals.L1 = (perPhaseTotals.L1 || 0) + (perPhaseTotals.L2 || 0) + (perPhaseTotals.L3 || 0);
+          perPhaseTotals.L2 = 0;
+          perPhaseTotals.L3 = 0;
+        }
+
+        const aggregateCurrent = totalPower / voltage;
+        const cableLimit = cableSize === 1.5 ? 15 : cableSize === 2.5 ? 20 : 25;
+        const voltDropPerAmpPerM = cableSize === 1.5 ? 0.03 : cableSize === 2.5 ? 0.018 : 0.011;
+
+        const phaseCurrents = activePhases.map((phase) => {
+          const phasePower = perPhaseTotals[phase] || 0;
+          const current = phasePower / voltage;
+          return { phase, power: phasePower, current };
+        });
+        const maxPhaseCurrent = phaseCurrents.length ? Math.max(...phaseCurrents.map((p) => p.current)) : 0;
+        const voltDrop = maxPhaseCurrent * cableLength * voltDropPerAmpPerM;
+        const endVoltage = voltage - voltDrop;
+        const voltageDropSafe = voltDrop < 11.5;
+        const currentSafe = phaseCurrents.every((p) => p.current <= cableLimit && p.current <= plugType);
+        const isSafe = currentSafe && voltageDropSafe;
+        const totalAvailablePower = plugType * voltage * phaseCount;
+
+        const deviceSummary = summary || "No devices added yet.<br>";
+        let result = `<strong>Total Load Summary:</strong><br>${deviceSummary}`;
+        result += `Total Power: <strong>${totalPower.toFixed(0)} W</strong><br>`;
+        result += `Configuration: ${phaseCount} phase${phaseCount > 1 ? "s" : ""}, ${voltage} V line-neutral<br>`;
+        result += `Aggregate Current (single phase equivalent): ${aggregateCurrent.toFixed(1)} A<br>`;
+        result += `Cable Limit: ${cableLimit} A | Plug Limit (per phase): ${plugType} A<br>`;
+        result += `Voltage Drop (worst phase): ${voltDrop.toFixed(1)} V → ${endVoltage.toFixed(1)} V<br>`;
+        result += `Total Available Power @ ${plugType}A × ${phaseCount} phases: ${totalAvailablePower.toFixed(0)} W<br><br>`;
+        result += isSafe
+          ? `<span style="color: limegreen; font-weight: bold;">Safe to run</span>`
+          : `<span style="color: red; font-weight: bold;">Overload or voltage drop risk</span>`;
+
+        if (!isSafe) {
+          result += `<br><br><div style="background: #2a2a2a; padding: 10px; border: 1px solid #444; border-radius: 5px;">`;
+          result += `<strong>Suggested Fixes:</strong>`;
+          result += `<ul style="margin-top: 0.5em; padding-left: 1.2em; color: #f1f1f1;">`;
+          const overPlug = phaseCurrents.filter((p) => p.current > plugType);
+          const overCable = phaseCurrents.filter((p) => p.current > cableLimit);
+          if (overPlug.length) {
+            const phaseList = overPlug.map((p) => p.phase).join(", ");
+            result += `<li>Reduce load on ${phaseList} or move circuits to stay within the ${plugType}A plug rating.</li>`;
+          }
+          if (overCable.length) {
+            const phaseList = overCable.map((p) => p.phase).join(", ");
+            result += `<li>Increase cable size or shorten run to keep ${phaseList} below the ${cableLimit}A cable limit.</li>`;
+          }
+          if (!voltageDropSafe) {
+            result += `<li>Shorten the cable length or increase the cable size to reduce voltage drop.</li>`;
+          }
+          if (phaseCurrents.length > 1) {
+            const spread = Math.max(...phaseCurrents.map((p) => p.power)) - Math.min(...phaseCurrents.map((p) => p.power));
+            if (spread > totalPower * 0.15) {
+              result += `<li>Use the auto balance tool or move circuits to even out phase loading.</li>`;
+            }
+          }
+          result += `</ul></div>`;
+        }
+
+        const breakdownEl = document.getElementById("breakdown");
+        let breakdownHtml = "";
+        if (phaseCurrents.length) {
+          breakdownHtml += `<strong>Per Phase Load:</strong>`;
+          breakdownHtml += `<ul style="margin-top: 0.5em; padding-left: 1.2em;">`;
+          phaseCurrents.forEach((p) => {
+            breakdownHtml += `<li>${p.phase}: ${p.power.toFixed(0)} W (${p.current.toFixed(1)} A)</li>`;
+          });
+          breakdownHtml += `</ul>`;
+        }
+        const departmentEntries = Object.entries(perDepartment).sort((a, b) => b[1] - a[1]);
+        if (departmentEntries.length) {
+          breakdownHtml += `<strong>Department Load:</strong>`;
+          breakdownHtml += `<ul style="margin-top: 0.5em; padding-left: 1.2em;">`;
+          departmentEntries.forEach(([dept, power]) => {
+            breakdownHtml += `<li>${escapeHtml(dept)}: ${power.toFixed(0)} W (${(power / voltage).toFixed(1)} A)</li>`;
+          });
+          breakdownHtml += `</ul>`;
+        }
+        const circuitEntries = Object.entries(perCircuit).sort((a, b) => b[1] - a[1]);
+        if (circuitEntries.length) {
+          breakdownHtml += `<strong>Circuit Load:</strong>`;
+          breakdownHtml += `<ul style="margin-top: 0.5em; padding-left: 1.2em;">`;
+          circuitEntries.forEach(([circuit, power]) => {
+            breakdownHtml += `<li>${escapeHtml(circuit)}: ${power.toFixed(0)} W (${(power / voltage).toFixed(1)} A)</li>`;
+          });
+          breakdownHtml += `</ul>`;
+        }
+        breakdownEl.innerHTML = breakdownHtml;
+
+        const generatorEl = document.getElementById("generatorAdvice");
+        let generatorHtml = "";
+        if (totalPower > 0) {
+          const recommendedKVA = totalPower / 1000 / 0.8;
+          generatorHtml += `<strong>Generator / Supply Check:</strong><br>`;
+          if (!isNaN(generatorCapacity) && generatorCapacity > 0) {
+            generatorHtml += `Provided generator capacity: ${generatorCapacity.toFixed(1)} kVA<br>`;
+            generatorHtml +=
+              generatorCapacity >= recommendedKVA
+                ? `✅ Covers recommended ${recommendedKVA.toFixed(1)} kVA (80% headroom).<br>`
+                : `❌ Undersized — aim for at least ${recommendedKVA.toFixed(1)} kVA (80% load).<br>`;
+          } else {
+            generatorHtml += `Suggested generator size (~80% load): ${recommendedKVA.toFixed(1)} kVA<br>`;
+          }
+          if (!isNaN(supplyLimit) && supplyLimit > 0) {
+            const overSupply = phaseCurrents.filter((p) => p.current > supplyLimit);
+            generatorHtml += `Venue supply limit: ${supplyLimit.toFixed(1)} A per phase<br>`;
+            generatorHtml += overSupply.length
+              ? `❌ ${overSupply.map((p) => p.phase).join(", ")} exceed the venue limit.`
+              : `✅ All phases stay within the venue limit.`;
+          }
+        }
+        generatorEl.innerHTML = generatorHtml;
+
+        document.getElementById("result").innerHTML = result;
+        return { totalPower, phaseCurrents };
+      }
+
+      const addDeviceRow = ({ name, wattage, quantity, department, circuit, phase }) => {
+        const tableBody = document.querySelector("#deviceList tbody");
+        const safeName = name || "Device";
+        const safeWattage = !isNaN(wattage) ? wattage : 0;
+        const safeQuantity = !isNaN(quantity) && quantity > 0 ? quantity : 1;
+        const safeDepartment = normalizeDepartment(department);
+        const safeCircuit = circuit || "";
+        const safePhase = normalizePhase(phase);
+        const totalPower = safeWattage * safeQuantity;
+
+        const row = document.createElement("tr");
+        const phaseOptions = phases
+          .map(
+            (phaseName) =>
+              `<option value="${phaseName}"${phaseName === safePhase ? " selected" : ""}>${phaseName}</option>`
+          )
+          .join("");
+
+        row.innerHTML = `
+          <td class="device-name">${escapeHtml(safeName)}</td>
+          <td><input type="number" value="${safeWattage}" class="watt" min="0" step="1" onchange="updateAndRecalculate()" /></td>
+          <td><input type="number" value="${safeQuantity}" class="qty" min="0" step="1" onchange="updateAndRecalculate()" /></td>
+          <td>
+            <select class="department" onchange="updateAndRecalculate()">
+              ${createDepartmentOptions(safeDepartment)}
+            </select>
+          </td>
+          <td><input type="text" value="${escapeHtml(safeCircuit)}" class="circuit" placeholder="e.g., L1-1" oninput="updateAndRecalculate()" /></td>
+          <td class="total-power">${totalPower.toFixed(0)}</td>
+          <td>
+            <select class="phase" onchange="updateAndRecalculate()">
+              ${phaseOptions}
+            </select>
+          </td>
+          <td><button onclick="removeDevice(this)">❌</button></td>
+        `;
+
+        tableBody.appendChild(row);
+        updatePhaseControls();
+        calculateLoad();
+      };
 
       document.getElementById("addDeviceBtn").addEventListener("click", function () {
         const name = document.getElementById("deviceName").value.trim();
         const wattage = parseFloat(document.getElementById("deviceWattage").value);
-        const quantity = parseInt(document.getElementById("quantity").value);
+        const quantity = parseInt(document.getElementById("quantity").value, 10);
+        const department = document.getElementById("deviceDepartment").value;
+        const circuit = document.getElementById("deviceCircuit").value.trim();
 
         if (!name || isNaN(wattage) || isNaN(quantity)) {
           alert("Please fill in all fields with valid values.");
           return;
         }
 
-        const totalPower = wattage * quantity;
-        devices.push({ name, wattage, quantity, totalPower });
-
-        const tableBody = document.querySelector("#deviceList tbody");
-        const row = document.createElement("tr");
-
-        row.innerHTML = `
-          <td>${name}</td>
-          <td><input type="number" value="${wattage}" class="watt" onchange="updateAndRecalculate()" /></td>
-          <td><input type="number" value="${quantity}" class="qty" onchange="updateAndRecalculate()" /></td>
-          <td class="total-power">${totalPower}</td>
-          <td><button onclick="removeDevice(this)">❌</button></td>
-        `;
-
-        tableBody.appendChild(row);
+        addDeviceRow({ name, wattage, quantity, department, circuit });
 
         document.getElementById("deviceName").value = "";
         document.getElementById("deviceWattage").value = "";
         document.getElementById("quantity").value = "";
+        document.getElementById("deviceCircuit").value = "";
+        document.getElementById("deviceDepartment").value = department;
       });
 
-      window.calculateLoad = function () {
-        const voltage = 230;
-        const cableSize = parseFloat(document.getElementById("cableSize").value);
-        const cableLength = parseFloat(document.getElementById("cableLength").value);
-        const plugType = parseInt(document.getElementById("plugType").value);
+      const importFromCsv = (text) => {
+        const lines = text.split(/\r?\n/).map((line) => line.trim()).filter((line) => line);
+        if (!lines.length) {
+          return;
+        }
+        const firstRow = lines[0].toLowerCase();
+        const hasHeader = firstRow.includes("name") || firstRow.includes("device");
+        const startIndex = hasHeader ? 1 : 0;
 
-        const tableRows = document.querySelectorAll("#deviceList tbody tr");
-        let totalPower = 0;
-        let summary = "";
+        for (let i = startIndex; i < lines.length; i++) {
+          const parts = lines[i].split(",").map((part) => part.trim());
+          if (parts.length < 3) {
+            continue;
+          }
+          const [name, wattageStr, quantityStr, department, circuit, phase] = parts;
+          const wattage = parseFloat(wattageStr);
+          const quantity = parseInt(quantityStr, 10);
+          if (!name || isNaN(wattage) || isNaN(quantity)) {
+            continue;
+          }
+          addDeviceRow({
+            name,
+            wattage,
+            quantity,
+            department,
+            circuit,
+            phase,
+          });
+        }
+      };
 
-        tableRows.forEach(row => {
-          const name = row.cells[0].textContent;
-          const watt = parseFloat(row.querySelector(".watt").value);
-          const qty = parseInt(row.querySelector(".qty").value);
-          const power = watt * qty;
-          totalPower += power;
-          summary += `${name} × ${qty} = ${power}W<br>`;
+      document.getElementById("importCsvBtn").addEventListener("click", () => {
+        document.getElementById("csvInput").click();
+      });
+
+      document.getElementById("csvInput").addEventListener("change", (event) => {
+        const file = event.target.files[0];
+        if (!file) {
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          importFromCsv(e.target.result);
+          calculateLoad();
+        };
+        reader.readAsText(file);
+        event.target.value = "";
+      });
+
+      document.getElementById("phaseCount").addEventListener("change", () => {
+        updatePhaseControls();
+        calculateLoad();
+      });
+
+      document.getElementById("supplyLimit").addEventListener("input", calculateLoad);
+      document.getElementById("generatorCapacity").addEventListener("input", calculateLoad);
+      document.getElementById("autoBalanceBtn").addEventListener("click", () => window.autoBalancePhases());
+
+      window.calculateLoad = calculateLoad;
+
+      window.updateAndRecalculate = function () {
+        calculateLoad();
+      };
+
+      window.removeDevice = function (btn) {
+        const row = btn.closest("tr");
+        row.remove();
+        calculateLoad();
+      };
+
+      window.autoBalancePhases = function () {
+        const phaseCount = parseInt(document.getElementById("phaseCount").value, 10) || 1;
+        if (phaseCount !== 3) {
+          alert("Auto balance requires a three-phase configuration.");
+          return;
+        }
+        const rows = Array.from(document.querySelectorAll("#deviceList tbody tr"));
+        const phaseTotals = { L1: 0, L2: 0, L3: 0 };
+        const sortedRows = rows.sort((a, b) => collectRowData(b).power - collectRowData(a).power);
+        sortedRows.forEach((row) => {
+          const data = collectRowData(row);
+          const targetPhase = phases.reduce((best, phase) =>
+            phaseTotals[phase] <= phaseTotals[best] ? phase : best
+          );
+          row.querySelector(".phase").value = targetPhase;
+          phaseTotals[targetPhase] += data.power;
         });
-
-        const currentDraw = totalPower / voltage;
-
-        // Conservative cable amp limits
-        const cableLimit = cableSize === 1.5 ? 15 : cableSize === 2.5 ? 20 : 25;
-        const voltDropPerAmpPerM = cableSize === 1.5 ? 0.03 : cableSize === 2.5 ? 0.018 : 0.011;
-        const voltDrop = currentDraw * cableLength * voltDropPerAmpPerM;
-        const endVoltage = voltage - voltDrop;
-        const voltageDropSafe = voltDrop < 11.5;
-        const isSafe = currentDraw <= cableLimit && currentDraw <= plugType && voltageDropSafe;
-
-        let result = `<strong>Total Load Summary:</strong><br>${summary}`;
-result += `Total Power: <strong>${totalPower.toFixed(0)} W</strong><br>`;
-result += `Estimated Current: ${currentDraw.toFixed(1)} A<br>`;
-result += `Cable Limit: ${cableLimit} A | Plug Limit: ${plugType} A<br>`;
-result += `Voltage Drop: ${voltDrop.toFixed(1)} V → ${endVoltage.toFixed(1)} V<br><br>`;
-result += isSafe
-  ? `<span style="color: limegreen; font-weight: bold;">Safe to run</span>`
-  : `<span style="color: red; font-weight: bold;">Overload or voltage drop risk</span>`;
-  
-        document.getElementById("result").innerHTML = result;
+        calculateLoad();
       };
 
       window.resetForm = function () {
-        // clear stored devices
-        devices.length = 0;
-
-        // clear table rows
         document.querySelector("#deviceList tbody").innerHTML = "";
 
-        // clear input fields
         document.getElementById("deviceName").value = "";
         document.getElementById("deviceWattage").value = "";
         document.getElementById("quantity").value = "";
+        document.getElementById("deviceCircuit").value = "";
+        document.getElementById("deviceDepartment").value = "Lighting";
 
-        // reset other controls
         document.getElementById("cableSize").value = "2.5";
         document.getElementById("cableLength").value = "10";
         document.getElementById("plugType").value = "16";
+        document.getElementById("phaseCount").value = "1";
+        document.getElementById("supplyLimit").value = "";
+        document.getElementById("generatorCapacity").value = "";
 
-        // clear result area
         document.getElementById("result").innerHTML = "";
+        document.getElementById("breakdown").innerHTML = "";
+        document.getElementById("generatorAdvice").innerHTML = "";
       };
 
       window.exportToCSV = function () {
-        const table = document.getElementById("deviceList");
-        const headers = Array.from(table.querySelectorAll("thead th")).map(th => th.textContent.trim());
-        const rows = Array.from(table.querySelectorAll("tbody tr")).map(row => {
-          return Array.from(row.cells).map(cell => cell.textContent.trim()).join(",");
+        const headers = [
+          "Device Name",
+          "Power per Device (W)",
+          "Quantity",
+          "Department",
+          "Circuit",
+          "Total Power (W)",
+          "Phase",
+        ];
+        const csvEscape = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+        const rows = Array.from(document.querySelectorAll("#deviceList tbody tr")).map((row) => {
+          const data = collectRowData(row);
+          const values = [
+            csvEscape(data.name),
+            data.watt,
+            data.qty,
+            csvEscape(normalizeDepartment(data.department)),
+            csvEscape(data.circuit),
+            data.power.toFixed(0),
+            data.phase,
+          ];
+          return values.join(",");
         });
 
         const csvRows = [headers.join(",")].concat(rows);
 
-        const resultLines = document.getElementById("result").innerText.split("\n").map(line => `"${line.trim()}"`);
-        csvRows.push("");
-        csvRows.push("Result Summary");
-        csvRows.push(...resultLines);
+        const appendBlock = (title, elementId) => {
+          const text = document.getElementById(elementId).innerText.trim();
+          if (!text) {
+            return;
+          }
+          csvRows.push("");
+          csvRows.push(title);
+          text.split("\n").forEach((line) => {
+            csvRows.push(`"${line.replace(/"/g, '""')}"`);
+          });
+        };
+
+        appendBlock("Result Summary", "result");
+        appendBlock("Breakdown", "breakdown");
+        appendBlock("Generator Advice", "generatorAdvice");
 
         const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
         const link = document.createElement("a");
@@ -177,27 +540,9 @@ result += isSafe
         link.click();
         document.body.removeChild(link);
       };
-    };
 
-    window.updateAndRecalculate = function () {
-      const rows = document.querySelectorAll("#deviceList tbody tr");
-      let totalPower = 0;
-
-      rows.forEach(row => {
-        const watt = parseFloat(row.querySelector(".watt").value);
-        const qty = parseInt(row.querySelector(".qty").value);
-        const power = isNaN(watt) || isNaN(qty) ? 0 : watt * qty;
-        row.querySelector(".total-power").textContent = power;
-        totalPower += power;
-      });
-
+      // Kick off with a blank calculation to initialise dependent UI.
       calculateLoad();
-    };
-
-    window.removeDevice = function (btn) {
-      const row = btn.closest("tr");
-      row.remove();
-      updateAndRecalculate();
     };
   </script>
 </body>

@@ -6,16 +6,14 @@
 
 ## 🔧 Features
 
-- Add multiple devices with unique power and quantity
-- Calculates total wattage and estimated current draw
-- Checks against:
-  - Cable size (1.5 / 2.5 / 4 mm²)
-  - Plug rating (13A / 16A / 32A)
-  - Voltage drop over distance
-- Flags overload or unsafe scenarios
-- One-click CSV export
-- Clean, responsive UI (mobile-friendly)
-- No installs — fully browser-based
+- Build an equipment list with per-item wattage, quantity, department, circuit, and phase tags
+- Import device lists from CSV or add gear on the fly
+- Automatically totals load per device, circuit, department, and phase
+- Checks cable size, plug rating, venue supply limits, and voltage drop in real time
+- Highlights overload risk and suggests fixes when limits are exceeded
+- Offers auto three-phase balancing plus generator sizing guidance
+- Exports the full plan (devices, summary, breakdowns) to CSV with one click
+- Runs entirely in the browser—nothing to install, mobile-friendly UI
 
 ---
 
@@ -29,12 +27,29 @@
 
 ## 🛠️ How to Use
 
-1. Enter a device name, wattage, and quantity
-2. Click **“Add Device”**
-3. Repeat for more devices
-4. Set cable size, length, and plug rating
-5. Click **“Calculate”** to see if your setup is safe
-6. Optionally export the results as a CSV
+1. Enter the device name, wattage, quantity, department, and circuit, then click **Add Device** (or import a CSV list).
+2. Choose the cable size, length, plug/connector rating, and phase configuration (single- or three-phase).
+3. Optional: set venue supply limits or a generator capacity to see pass/fail indicators.
+4. Click **Calculate** (or adjust any value) to refresh totals, per-phase currents, and safety checks.
+5. If you are on three-phase, use **Auto Balance Phases** to redistribute the heaviest loads evenly across L1/L2/L3.
+6. Export the device list and summaries with **Export CSV** for show files or sign-off.
+
+---
+
+## 📥 CSV Import Format
+
+The importer expects comma-separated values in the following column order (header row optional):
+
+```
+Device Name, Wattage, Quantity, Department, Circuit, Phase
+```
+
+- `Device Name` (text) — required  
+- `Wattage` (number, watts) — required  
+- `Quantity` (integer) — required  
+- `Department` (text) — optional (defaults to “Other”)  
+- `Circuit` (text) — optional  
+- `Phase` (L1/L2/L3) — optional; ignored in single-phase mode
 
 ---
 
@@ -44,7 +59,7 @@
 AmpLogic/
 ├── index.html        # Main app layout
 ├── style.css         # Dark theme styling
-├── script.js         # All logic and interactivity
+├── script.js         # Legacy logic (current app inlines scripts in index.html)
 └── README.md         # You're reading it
 ```
 
