@@ -21,7 +21,6 @@
 
 👉 [https://domtrotta.github.io/AmpLogic](https://domtrotta.github.io/AmpLogic)
 
-*(Update the link above after deploying to GitHub Pages)*
 
 ---
 
